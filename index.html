@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>魂を視るワーク教材 | Relife Spiritual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Lato:wght@300;400;700&family=Zen+Antique+Soft&family=Zen+Maru+Gothic:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html,body{font-family:"Zen Maru Gothic","Lato",sans-serif;background:#FAFAF9;color:#44403C;}
+  .logo-font{font-family:"Cinzel",serif;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#D6D3D1;border-radius:9999px;}
+  details > summary{list-style:none;cursor:pointer;}
+  details > summary::-webkit-details-marker{display:none;}
+  .fade-in{animation:fadeIn .35s ease;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  textarea,input[type=text]{font-family:inherit;}
+  mark{background:#FEF3C7; color:inherit; padding:0 .2em; border-radius:3px;}
+  mark.mk-orange{background:#FFEDD5;}
+  mark.mk-sky{background:#E0F2FE;}
+  mark.mk-rose{background:#FFE4E6;}
+  mark.mk-green{background:#DCFCE7;}
+  mark.mk-purple{background:#F3E8FF;}
+  .soul-orb{animation:soulPulse 6s ease-in-out infinite;}
+  @keyframes soulPulse{0%,100%{opacity:.9;transform:scale(1);}50%{opacity:1;transform:scale(1.015);}}
+</style>
+</head>
+<body class="min-h-screen">
+<div id="app"></div>
+
+<script>
+/* ============ 定数 ============ */
+const CHAKRAS = [
+  {key:'root',      name:'第1チャクラ（Root）',      desc:'グラウンディング・安定', loc:'会陰・骨盤の底',     bg:'bg-red-50',    text:'text-red-800',    freq:396},
+  {key:'sacral',     name:'第2チャクラ（Sacral）',     desc:'感情と創造性',           loc:'下腹部（おへその下）', bg:'bg-orange-50', text:'text-orange-600', freq:417},
+  {key:'solar',      name:'第3チャクラ（Solar）',      desc:'内なる太陽・意志',       loc:'みぞおち',           bg:'bg-yellow-50', text:'text-yellow-600', freq:528},
+  {key:'heart',      name:'第4チャクラ（Heart）',      desc:'愛と解放',               loc:'胸の中心',           bg:'bg-teal-50',   text:'text-green-700',  freq:639},
+  {key:'throat',     name:'第5チャクラ（Throat）',     desc:'表現力・真実',           loc:'のど',               bg:'bg-sky-50',    text:'text-sky-700',    freq:741},
+  {key:'third_eye',  name:'第6チャクラ（Third Eye）',  desc:'直感と明晰さ',           loc:'眉間',               bg:'bg-indigo-50', text:'text-indigo-700', freq:852},
+  {key:'crown',      name:'第7チャクラ（Crown）',      desc:'高次元との接続',         loc:'頭のてっぺん',       bg:'bg-purple-50', text:'text-purple-700', freq:963},
+];
+const MAIN_KEYS = ['sacral','heart','crown'];
+const COLORS = ['赤','橙','黄','緑','青','藍','紫','白','金','銀','黒','虹色（マルチカラー）'];
+const THEMES = ['喜び','悲しみ','怒り','恐れ','驚き','嫌悪','期待','信頼','愛','罪悪感','恥','誇り','嫉妬','後悔','感謝','希望','絶望','安心','不安','孤独','平穏','情熱'];
+const STORAGE_KEY = 'soulWorkAppState_v1';
+
+/* ============ 状態 ============ */
+const state = {
+  currentMenu: 'menu1',
+  volume: 0.8,
+  soul: {
+    target:'self', targetName:'',
+    brightness:'', temperature:'', weight:'', color:'', theme:'', other:'',
+    generatedPrompt:''
+  },
+  feedback: { shapeType:false, wordType:false, inconsistentType:false }
+};
+
+function deepMerge(target, source){
+  for(const k in source){
+    if(source[k] && typeof source[k]==='object' && !Array.isArray(source[k]) && target[k] && typeof target[k]==='object'){
+      deepMerge(target[k], source[k]);
+    } else {
+      target[k] = source[k];
+    }
+  }
+  return target;
+}
+function save(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){} }
+function load(){ try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) deepMerge(state, JSON.parse(raw)); }catch(e){} }
+function getDeep(path){ return path.split('.').reduce((o,k)=>(o?o[k]:undefined), state); }
+function setDeep(path, value){ const p=path.split('.'); let o=state; for(let i=0;i<p.length-1;i++) o=o[p[i]]; o[p[p.length-1]]=value; }
+function setField(path, value){ setDeep(path,value); save(); render(); }
+function setFieldSilent(path, value){ setDeep(path,value); save(); }
+function goMenu(m){ state.currentMenu = m; save(); render(); window.scrollTo({top:0, behavior:'smooth'}); }
+function escAttr(s){ return String(s).replace(/'/g, "\\'"); }
+function targetLabel(){
+  return state.soul.target==='other' ? (state.soul.targetName.trim() || '相談者') : 'ご自身';
+}
+function isOtherTarget(){ return state.soul.target==='other'; }
+
+/* ============ Web Audio（瞑想BGM） ============ */
+let audioCtx=null, masterGain=null, activeOsc=[], currentPreviewKey=null, isMainPlaying=false;
+function ensureAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = state.volume;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 4500;
+    masterGain.connect(filter).connect(audioCtx.destination);
+  }
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  return audioCtx;
+}
+function stopAllTones(){
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  activeOsc.forEach(({osc,gain,extra})=>{
+    try{
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0.0001, now+0.6);
+      osc.stop(now+0.7);
+      (extra||[]).forEach(o=>{ try{ o.stop(now+0.7); }catch(e){} });
+    }catch(e){}
+  });
+  activeOsc = [];
+  currentPreviewKey = null;
+  isMainPlaying = false;
+}
+function playTones(freqs){
+  stopAllTones();
+  const ctx = ensureAudio();
+  const now = ctx.currentTime;
+  freqs.forEach((f)=>{
+    const toneGain = ctx.createGain();
+    toneGain.gain.value = 0.0001;
+    toneGain.connect(masterGain);
+
+    const osc1 = ctx.createOscillator(); osc1.type='sine';     osc1.frequency.value=f;
+    const osc2 = ctx.createOscillator(); osc2.type='sine';     osc2.frequency.value=f*1.004;
+    const osc3 = ctx.createOscillator(); osc3.type='triangle'; osc3.frequency.value=f*2;
+
+    const g1 = ctx.createGain(); g1.gain.value=0.55;
+    const g2 = ctx.createGain(); g2.gain.value=0.35;
+    const g3 = ctx.createGain(); g3.gain.value=0.18;
+
+    osc1.connect(g1).connect(toneGain);
+    osc2.connect(g2).connect(toneGain);
+    osc3.connect(g3).connect(toneGain);
+
+    const lfo = ctx.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.06;
+    const lfoGain = ctx.createGain(); lfoGain.gain.value=2.5;
+    lfo.connect(lfoGain).connect(osc1.frequency);
+    lfo.connect(lfoGain).connect(osc2.frequency);
+
+    [osc1,osc2,osc3,lfo].forEach(o=>o.start(now));
+    toneGain.gain.linearRampToValueAtTime(0.16/freqs.length+0.05, now+2.2);
+    activeOsc.push({osc:osc1, gain:toneGain, extra:[osc2,osc3,lfo]});
+  });
+}
+function setVolume(v){
+  state.volume = parseFloat(v);
+  save();
+  if(masterGain) masterGain.gain.value = state.volume;
+}
+function toggleMainBGM(){
+  if(isMainPlaying){ stopAllTones(); }
+  else { playTones(MAIN_KEYS.map(k=>CHAKRAS.find(c=>c.key===k).freq)); isMainPlaying=true; }
+  render();
+}
+function togglePreview(key,freq){
+  if(currentPreviewKey===key){ stopAllTones(); }
+  else { playTones([freq]); currentPreviewKey=key; }
+  render();
+}
+
+/* ============ プロンプト生成 ============ */
+function buildSoulPrompt(){
+  const s = state.soul;
+  const other = isOtherTarget();
+  const label = targetLabel();
+  const trainingDesc = other ? `相談者（${label}）を対象に行った霊視トレーニング` : 'ご自身を対象に行ったセルフ霊視トレーニング';
+  let p = `あなたは経験豊富なスピリチュアルカウンセラーです。
+以下は、鑑定士が「魂を視るワーク」で行った${trainingDesc}の回答記録です。この記録をもとに、鑑定対象専用の「魂の鑑定文」を作成してください。
+
+【セッション記録（ソウルシルエットを凝視した直後の直感回答）】
+・鑑定対象：${other ? `相談者（${label}）` : 'ご本人（自分自身）'}
+・明暗：${s.brightness || '未回答'}
+・温度感：${s.temperature || '未回答'}
+・重さ：${s.weight || '未回答'}
+・色：${s.color || '未回答'}
+・今の魂のテーマ（感情）：${s.theme || '未回答'}
+・その他見えたもの・感じたこと：${s.other || '未回答'}
+
+【鑑定文作成の必須ルール】
+1. 鑑定文は必ず「あなたの魂を霊視させていただきました。」という一文から書き始めること。
+2. 文中の「あなた」という呼びかけは、常に鑑定対象（${other ? label : 'ご本人'}）に向けて書かれているものとすること。鑑定士本人に向けた表現にはしないこと。
+3. 文体はバーナム効果を意識し、誰にでも当てはまりうる普遍的な人間心理・人生の機微を、「まるであなただけに向けて語っているかのように」自然で温かい日本語で表現すること。
+4. 一文一文を短めにし、意味の区切りごとに適切に改行を入れ、スマートフォンでも読みやすいレイアウトにすること。
+5. セッション記録の内容を"的中しにいく"姿勢で、断定的かつ具体的な言葉で言い当てるように書くこと（曖昧なぼかし表現を多用しない）。
+6. 鑑定対象が自ら行動したくなるよう、背中を押す・行動を促す教唆的な表現を随所に盛り込むこと（例：「〜するタイミングに来ています」「〜を選んでいいのです」「今、動くことを魂は望んでいます」等）。
+7. 良い面だけでなく、短所・課題・耳の痛いポイントも必ず織り交ぜ、鑑定に深みとリアリティを持たせること。
+8. 強調のためのアスタリスク（**太字**等のMarkdown記法）は一切使用しないこと。プレーンな日本語の文章のみで表現すること。
+9. 全体は「魂の状態の読み解き」→「色・温度・重さが示す意味」→「今の魂のテーマ」→「短所・課題」→「今後のアドバイス」の流れで構成し、合計800〜1200文字程度にまとめること。
+
+上記ルールに厳密に従い、鑑定文本文のみを出力してください（前置きや解説は不要です）。`;
+  return p;
+}
+function generateSoulPromptClick(){ state.soul.generatedPrompt = buildSoulPrompt(); save(); render(); }
+
+function copyText(id){
+  const ta = document.getElementById(id);
+  if(!ta) return;
+  navigator.clipboard.writeText(ta.value).then(()=>showToast('コピーしました')).catch(()=>{
+    ta.select(); document.execCommand('copy'); showToast('コピーしました');
+  });
+}
+function showToast(msg){
+  let t = document.getElementById('toast');
+  if(!t){
+    t = document.createElement('div');
+    t.id='toast';
+    t.className='fixed bottom-6 left-1/2 -translate-x-1/2 bg-stone-800 text-white text-sm px-4 py-2 rounded-full shadow-lg z-[100] transition-opacity duration-300';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity='1';
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=>{ t.style.opacity='0'; }, 1800);
+}
+
+/* ============ UIヘルパー ============ */
+function card(inner, cls=''){ return `<div class="bg-white rounded-xl shadow-sm p-5 md:p-6 ${cls}">${inner}</div>`; }
+function sectionTitle(t, sub=''){ return `<div class="mb-4"><h2 class="text-lg font-medium text-stone-800">${t}</h2>${sub?`<p class="text-sm text-stone-400 mt-1">${sub}</p>`:''}</div>`; }
+function purposeBox(why, clear){
+  return `<div class="bg-sky-50 rounded-lg p-3 text-xs text-stone-600 leading-relaxed mb-4 space-y-1.5">
+    <p><mark class="mk-sky">🎯 なぜやるのか</mark> ${why}</p>
+    <p><mark class="mk-green">✅ クリアの目安</mark> ${clear}</p>
+  </div>`;
+}
+function tile(path, value, label){
+  const active = getDeep(path) === value;
+  const cls = active ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-400' : 'bg-stone-100 text-stone-600 hover:bg-stone-200';
+  return `<button type="button" onclick="setField('${path}','${escAttr(value)}')" class="px-4 py-2 rounded-full text-sm transition ${cls}">${label}</button>`;
+}
+function tileGroup(path, options){
+  return `<div class="flex flex-wrap gap-2">${options.map(o=>tile(path,o.v,o.l)).join('')}</div>`;
+}
+function textInput(path, placeholder=''){
+  const v = getDeep(path) || '';
+  return `<input type="text" value="${(v+'').replace(/"/g,'&quot;')}" placeholder="${placeholder}" oninput="setFieldSilent('${path}', this.value)" class="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300"/>`;
+}
+function textArea(path, placeholder='', rows=3){
+  const v = getDeep(path) || '';
+  return `<textarea rows="${rows}" placeholder="${placeholder}" oninput="setFieldSilent('${path}', this.value)" class="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-300">${v}</textarea>`;
+}
+function autoSaveNote(){ return `<p class="text-xs text-stone-400 mt-3">※データはお使いのブラウザに自動保存されます</p>`; }
+
+/* ============ SVGアセット ============ */
+const SVG_SOUL_ORB = `
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ソウルシルエット凝視用の円形図" class="soul-orb">
+  <defs>
+    <radialGradient id="soulGrad" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="45%" stop-color="#F5F5F4"/>
+      <stop offset="78%" stop-color="#E7E5E4"/>
+      <stop offset="100%" stop-color="#D6D3D1"/>
+    </radialGradient>
+    <filter id="soulBlur" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+  <circle cx="200" cy="200" r="188" fill="#FAFAF9"/>
+  <circle cx="200" cy="200" r="170" fill="url(#soulGrad)" filter="url(#soulBlur)"/>
+  <circle cx="200" cy="200" r="170" fill="none" stroke="#D6D3D1" stroke-width="1"/>
+  <circle cx="200" cy="200" r="128" fill="none" stroke="#E7E5E4" stroke-width="1"/>
+  <circle cx="200" cy="200" r="86" fill="none" stroke="#E7E5E4" stroke-width="1"/>
+  <circle cx="200" cy="200" r="44" fill="none" stroke="#E7E5E4" stroke-width="1"/>
+  <circle cx="200" cy="200" r="5" fill="#A8A29E"/>
+</svg>`;
+const SVG_NEURO = `
+<svg viewBox="0 0 640 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="魂視ニューロメソッドの図解">
+  <rect x="8" y="35" width="185" height="100" rx="14" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text x="100" y="72" text-anchor="middle" font-size="13" fill="#C2410C" font-family="sans-serif">① 呼吸法・チャクラ瞑想</text>
+  <text x="100" y="95" text-anchor="middle" font-size="11" fill="#78716C" font-family="sans-serif">顕在脳を落ち着かせる</text>
+
+  <text x="216" y="95" text-anchor="middle" font-size="22" fill="#D6D3D1">→</text>
+
+  <rect x="228" y="35" width="185" height="100" rx="14" fill="#F3E8FF" stroke="#C084FC"/>
+  <text x="320" y="72" text-anchor="middle" font-size="13" fill="#7E22CE" font-family="sans-serif">② 魂ニューロン優位</text>
+  <text x="320" y="95" text-anchor="middle" font-size="11" fill="#78716C" font-family="sans-serif">直感の回路が開く</text>
+
+  <text x="437" y="95" text-anchor="middle" font-size="22" fill="#D6D3D1">→</text>
+
+  <rect x="448" y="35" width="185" height="100" rx="14" fill="#F0FDFA" stroke="#5EEAD4"/>
+  <text x="540" y="72" text-anchor="middle" font-size="13" fill="#0F766E" font-family="sans-serif">③ 形質・色彩・感情を受信</text>
+  <text x="540" y="95" text-anchor="middle" font-size="11" fill="#78716C" font-family="sans-serif">浮かんだままを拾う</text>
+</svg>`;
+
+/* ============ タイマー ============ */
+function fmtTime(sec){ const m=Math.floor(sec/60), s=sec%60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
+
+let medTimer = {remaining:900, running:false, id:null};
+function startMedTimer(){
+  if(medTimer.running) return;
+  medTimer.running = true;
+  playTones(MAIN_KEYS.map(k=>CHAKRAS.find(c=>c.key===k).freq));
+  isMainPlaying = true;
+  medTimer.id = setInterval(()=>{
+    medTimer.remaining--;
+    const el = document.getElementById('medTimerDisplay');
+    if(el) el.textContent = fmtTime(Math.max(medTimer.remaining,0));
+    if(medTimer.remaining<=0){
+      clearInterval(medTimer.id); medTimer.running=false; stopAllTones();
+      const btn = document.getElementById('medTimerStatus');
+      if(btn) btn.textContent = '瞑想が完了しました🌸 お疲れさまでした';
+    }
+  },1000);
+  render();
+}
+function pauseMedTimer(){ if(medTimer.id) clearInterval(medTimer.id); medTimer.running=false; stopAllTones(); render(); }
+function resetMedTimer(){ if(medTimer.id) clearInterval(medTimer.id); medTimer = {remaining:900, running:false, id:null}; stopAllTones(); render(); }
+
+let gazeTimer = {remaining:60, running:false, id:null, done:false};
+function startGazeTimer(){
+  if(gazeTimer.running) return;
+  gazeTimer.running = true;
+  gazeTimer.id = setInterval(()=>{
+    gazeTimer.remaining--;
+    const el = document.getElementById('gazeTimerDisplay');
+    if(el) el.textContent = fmtTime(Math.max(gazeTimer.remaining,0));
+    if(gazeTimer.remaining<=0){
+      clearInterval(gazeTimer.id); gazeTimer.running=false; gazeTimer.done=true;
+      render();
+    }
+  },1000);
+  render();
+}
+function skipGaze(){ if(gazeTimer.id) clearInterval(gazeTimer.id); gazeTimer.done=true; gazeTimer.running=false; render(); }
+
+/* ============ 魂の種類10種：SVGアイコン ============ */
+const SOULS = [
+  {name:'神護魂', reading:'しんごこん', desc:'神々に近いエネルギーを宿し、人や場を守り導く使命を持つ魂。', bg:'bg-amber-50', ring:'ring-amber-200', text:'text-amber-700',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="16" x2="56" y2="16"/><line x1="4" y1="10" x2="60" y2="10"/><line x1="16" y1="10" x2="16" y2="56"/><line x1="48" y1="10" x2="48" y2="56"/><line x1="14" y1="24" x2="50" y2="24"/></svg>`},
+  {name:'浄光魂', reading:'じょうこうこん', desc:'浄化と光の力に長け、穢れを祓い場を清める魂。', bg:'bg-sky-50', ring:'ring-sky-200', text:'text-sky-600',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="32" cy="32" r="11"/><line x1="32" y1="4" x2="32" y2="13"/><line x1="32" y1="51" x2="32" y2="60"/><line x1="4" y1="32" x2="13" y2="32"/><line x1="51" y1="32" x2="60" y2="32"/><line x1="11" y1="11" x2="17" y2="17"/><line x1="47" y1="47" x2="53" y2="53"/><line x1="53" y1="11" x2="47" y2="17"/><line x1="17" y1="47" x2="11" y2="53"/></svg>`},
+  {name:'戦魂', reading:'せんこん', desc:'困難を切り拓く強い意志と正義感を持つ、闘う力に長けた魂。', bg:'bg-red-50', ring:'ring-red-200', text:'text-red-700',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="32" y1="6" x2="32" y2="40"/><polygon points="32,6 26,16 38,16" fill="currentColor" stroke="none"/><line x1="18" y1="28" x2="46" y2="28"/><line x1="32" y1="40" x2="32" y2="58"/><line x1="25" y1="50" x2="39" y2="50"/></svg>`},
+  {name:'慈愛魂', reading:'じあいこん', desc:'深い愛情と包容力で人を癒す魂。', bg:'bg-rose-50', ring:'ring-rose-200', text:'text-rose-600',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M32 54C12 40 8 22 20 15c6-3 10 2 12 7 2-5 6-10 12-7 12 7 8 25-12 39Z"/></svg>`},
+  {name:'知恵魂', reading:'ちえこん', desc:'学び、真理を探求し、伝える力に優れた魂。', bg:'bg-indigo-50', ring:'ring-indigo-200', text:'text-indigo-700',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16c8-4 18-4 26 2 8-6 18-6 26-2v32c-8-4-18-4-26 2-8-6-18-6-26-2Z"/><line x1="32" y1="18" x2="32" y2="50"/></svg>`},
+  {name:'創造魂', reading:'そうぞうこん', desc:'新しいものを生み出す、芸術・発明に長けた魂。', bg:'bg-purple-50', ring:'ring-purple-200', text:'text-purple-700',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M32 32c0-6 6-8 9-4s-2 10-8 9c-8-2-10-12-2-17 10-6 20 4 15 16-6 14-24 14-32 2"/></svg>`},
+  {name:'大地魂', reading:'だいちこん', desc:'安定と現実的な力を持つ、グラウンディングに優れた魂。', bg:'bg-stone-100', ring:'ring-stone-300', text:'text-stone-600',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="8,46 24,18 34,34 44,14 56,46"/><line x1="6" y1="46" x2="58" y2="46"/></svg>`},
+  {name:'風雅魂', reading:'ふうがこん', desc:'自由と美を愛し、柔軟に生きる魂。', bg:'bg-teal-50', ring:'ring-teal-200', text:'text-teal-600',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M46 8C54 24 50 44 30 56"/><path d="M30 56c-8 2-16-1-18-8"/><line x1="38" y1="18" x2="26" y2="24"/><line x1="41" y1="28" x2="27" y2="33"/><line x1="40" y1="38" x2="26" y2="42"/><line x1="35" y1="47" x2="23" y2="49"/></svg>`},
+  {name:'深淵魂', reading:'しんえんこん', desc:'静けさと内省を好み、神秘性を宿す魂。', bg:'bg-slate-100', ring:'ring-slate-300', text:'text-slate-700',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M40 8C26 10 16 20 16 34c0 14 10 24 24 26-18 2-32-10-32-28S22 6 40 8Z"/></svg>`},
+  {name:'太陽魂', reading:'たいようこん', desc:'明るさと情熱を放ち、人を引っ張るリーダーシップを持つ魂。', bg:'bg-yellow-50', ring:'ring-yellow-200', text:'text-yellow-700',
+    icon:`<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="32" cy="32" r="13"/><line x1="32" y1="3" x2="32" y2="12"/><line x1="32" y1="52" x2="32" y2="61"/><line x1="3" y1="32" x2="12" y2="32"/><line x1="52" y1="32" x2="61" y2="32"/><line x1="11" y1="11" x2="18" y2="18"/><line x1="46" y1="46" x2="53" y2="53"/><line x1="53" y1="11" x2="46" y2="18"/><line x1="18" y1="46" x2="11" y2="53"/></svg>`},
+];
+function renderSoulTypes(){
+  return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+    ${SOULS.map(s=>`
+      <div class="${s.bg} rounded-2xl p-3.5 flex flex-col items-center text-center gap-1.5 ring-1 ${s.ring}">
+        <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center ${s.text} shadow-sm">
+          <div class="w-7 h-7">${s.icon}</div>
+        </div>
+        <p class="text-xs font-semibold ${s.text} mt-0.5">${s.name}</p>
+        <p class="text-[10px] text-stone-400 -mt-1">${s.reading}</p>
+        <p class="text-[10px] text-stone-500 leading-snug">${s.desc}</p>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+/* ============ Menu1: 基礎解説とチャクラ瞑想 ============ */
+const BASICS = [
+  ['魂とは', `魂とは、あなたという存在の最も奥にある「core（核）」であり、肉体が滅びたあとも消えることのない、あなた自身の本質のことです。<br><br>
+今世だけでなく、幾度もの転生を通じて経験や記憶を蓄積してきた、いわば<mark>「あなたの本体」</mark>にあたる部分です。感情や思考は表面の波に過ぎず、魂はその奥で静かに、しかし確かに存在し続けています。`],
+  ['形について', `魂には基本的に決まった「形」はありません。魂は本来、形をもたない純粋なエネルギーの状態だからです。<br><br>
+ただし、視る人の感覚のクセによっては、はっきりとしたフォルムとして見えることがあります。たとえば<mark class="mk-orange">動物型</mark>に見える方や、光の粒、幾何学模様として捉える方もいます。<br><br>
+形が見える／見えないに優劣はありません。それはあなたの波動の受け取り方の個性です。`],
+  ['魂体とは', `魂体（こんたい）とは、魂そのものを包む"器"のようなエネルギー体のことです。肉体・感情体・精神体などいくつかの層が重なり合い、その一番奥に魂が宿っています。<br><br>
+魂体は、いわば魂が今世を生きるために身にまとった「乗り物」。魂体の状態（明るさ・重さ・色合いなど）を通して、私たちは魂そのものの状態を間接的に感じ取ることができます。`],
+  ['魂に眠る記憶', `魂の奥深くには、今世の記憶だけでなく、過去世の記憶や、血のつながりを通じて受け継がれてきた<mark class="mk-green">ご先祖様の記憶</mark>、そしてあなたを見守り続けてきた<mark class="mk-green">守護霊の存在</mark>そのものが、静かに眠っています。<br><br>
+魂を視るということは、これらの層に重なった記憶や存在に、そっと意識を向けていく作業でもあります。焦らず、少しずつ紐解いていきましょう。`],
+  ['魂の種類10種', `魂には、その人が今世で担う役割や性質によって、大きく10の種類があるとされています。それぞれが固有の波動とシンボルを持っています。<br><br>
+${renderSoulTypes()}
+<br>
+鑑定の際は<mark>「〇〇型」</mark>という表記（例：神護魂型、太陽魂型）を用いて、見えた性質を分類していきます。`],
+  ['魂と霊魂の違い', `「魂」と「霊魂」は似た言葉ですが、本教材では次のように区別しています。<br><br>
+・<mark>魂</mark>：あなた自身の本質そのもの。転生を繰り返しながら成長し続ける、いわば「あなたの核」。<br>
+・<mark class="mk-purple">霊魂</mark>：肉体を離れたあとの意識体全般を指す、より広い概念。ご先祖様や守護霊、土地に宿る存在なども含まれます。<br><br>
+つまり<mark>魂＝個人の本質</mark>であり、<mark class="mk-purple">霊魂＝肉体を離れたすべての存在を含む総称</mark>と捉えると分かりやすいでしょう。魂を視るワークは、自分自身の魂を視る場合も、相談者の魂を視る場合も、同じ手順で進めていきます。`],
+  ['魂と色相、波動について', `魂そのものに決まった色があるわけではありません。魂が発する<mark class="mk-sky">波動（エネルギーの振動）</mark>を、あなたがどのように受け取るかによって、見え方はまったく変わってきます。<br><br>
+・波動を<mark class="mk-orange">形質</mark>として捉えやすい方 → 動物や幾何学模様などの「形」で見える（形質型）<br>
+・波動を<mark class="mk-rose">色彩</mark>として捉えやすい方 → 赤・青・金など「色」の印象で見える（色彩型）<br>
+・波動を<mark class="mk-green">感情・記憶</mark>として捉えやすい方 → 過去の想いや感情が浮かんでくる（感情型）<br><br>
+これらは優劣ではなく、あなたの感覚の"利き手"のようなものです。鑑定の記録をつける際は、必ず<mark>「〇〇型」</mark>という形で自分の見え方の傾向を書き添えておきましょう。`],
+];
+function renderMenu1(){
+  const runningMain = medTimer.running;
+  return `
+    <div class="space-y-4 fade-in">
+      ${card(`
+        ${sectionTitle('基礎解説', '魂についての基礎知識')}
+        <div class="divide-y divide-stone-100">
+          ${BASICS.map(([t,body],i)=>`
+            <details class="py-3" ${i===0?'open':''}>
+              <summary class="flex items-center justify-between text-stone-700 font-medium">
+                <span>${t}</span>
+                <span class="text-stone-300">▾</span>
+              </summary>
+              <div class="mt-3 text-sm leading-relaxed text-stone-600">${body}</div>
+            </details>
+          `).join('')}
+        </div>
+      `)}
+      ${card(`
+        ${sectionTitle('チャクラ瞑想', '第2・第4・第7チャクラを同時に使用します')}
+        <div class="bg-indigo-50 rounded-lg p-4 mb-4 text-sm text-stone-600 leading-relaxed">
+          <p class="font-medium text-indigo-700 mb-1">🧠 なぜチャクラ瞑想をするのか（魂ニューロンの視点）</p>
+          <p>私たちの脳には、論理的に考える「顕在脳」と、直感やイメージを受け取る<mark class="mk-purple">"魂ニューロン"</mark>と呼べる回路があります。普段は顕在脳が優位なため、魂ニューロンからの微細な情報はかき消されがちです。</p>
+          <p class="mt-2">チャクラに意識を向けながら呼吸をすることで顕在脳の働きが落ち着き、<mark class="mk-purple">魂ニューロンが優位</mark>に切り替わっていきます。チャクラ瞑想は、いわば魂からの波動を受信するための"アンテナの周波数合わせ"です。</p>
+          <div class="my-3">${SVG_NEURO}</div>
+        </div>
+        <p class="text-sm text-stone-600 leading-relaxed mb-4">
+          あえて第6チャクラ（直感・イメージ）は使いません。第6チャクラを先に開きすぎると、<mark>妄想（実在しないもの）</mark>と<mark>実在する情報</mark>の区別がつきにくくなるためです。
+          まずは感情（第2）・愛と共鳴（第4）・高次との接続（第7）の3つで"純度の高い回路"を作ってから、魂を視るトレーニングに進みます。
+        </p>
+        <div class="grid grid-cols-3 gap-2 mb-4">
+          ${MAIN_KEYS.map(k=>{ const c=CHAKRAS.find(x=>x.key===k); return `
+            <div class="${c.bg} rounded-lg p-3 text-center">
+              <p class="text-xs font-medium ${c.text}">${c.name}</p>
+              <p class="text-[11px] text-stone-400 mt-1">${c.desc}</p>
+              <p class="text-[10px] text-stone-400 mt-0.5">📍${c.loc}</p>
+            </div>`; }).join('')}
+        </div>
+        <div class="bg-stone-50 rounded-lg p-4 mb-4">
+          <p class="text-sm font-medium text-stone-700 mb-2">ハイパワー呼吸法</p>
+          <ol class="text-sm text-stone-600 space-y-1 list-decimal list-inside">
+            <li>鼻から4秒かけて大きく吸う（お腹→胸の順に膨らませる）</li>
+            <li>2秒止める</li>
+            <li>口から6秒かけて強く吐き切る</li>
+            <li>これを1セットとし、3つのチャクラを<mark class="mk-orange">"同時に"</mark>意識しながら連続で繰り返す</li>
+          </ol>
+          <div class="mt-3 bg-orange-50 rounded-lg p-3 text-xs text-orange-700 leading-relaxed">
+            🔑 コツ：呼吸をしながら心の中で「にい・よん・なな」と、第<mark class="mk-orange">2</mark>・第<mark class="mk-orange">4</mark>・第<mark class="mk-orange">7</mark>の数字を唱えてください。3つのチャクラを"同時に"イメージすることが、回路を開くポイントです。
+          </div>
+        </div>
+        ${purposeBox(
+          '顕在脳を落ち着かせ、魂ニューロンを優位にするためです。',
+          '15分間、無理に何かを"視よう"とせず、体の力が抜けて頭がぼんやりする感覚になれたらクリアです。'
+        )}
+        <div class="flex items-center gap-4">
+          <div class="text-3xl font-light text-stone-800 tabular-nums" id="medTimerDisplay">${fmtTime(medTimer.remaining)}</div>
+          <div class="flex gap-2">
+            ${!runningMain ? `<button onclick="startMedTimer()" class="px-4 py-2 rounded-full bg-stone-800 text-white text-sm hover:bg-stone-700">開始</button>`
+              : `<button onclick="pauseMedTimer()" class="px-4 py-2 rounded-full bg-stone-200 text-stone-700 text-sm hover:bg-stone-300">一時停止</button>`}
+            <button onclick="resetMedTimer()" class="px-4 py-2 rounded-full bg-stone-100 text-stone-500 text-sm hover:bg-stone-200">リセット</button>
+          </div>
+        </div>
+        <p id="medTimerStatus" class="text-sm text-stone-500 mt-2">${medTimer.remaining<=0?'瞑想が完了しました🌸 お疲れさまでした':'15分間、3チャクラを同時に意識して呼吸を続けましょう'}</p>
+        <details class="mt-5 border-t border-stone-100 pt-4">
+          <summary class="text-sm text-stone-500">他の4チャクラの単体BGMも聴く（任意）</summary>
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            ${CHAKRAS.filter(c=>!MAIN_KEYS.includes(c.key)).map(c=>`
+              <button onclick="togglePreview('${c.key}',${c.freq})" class="${c.bg} ${c.text} rounded-lg px-3 py-2 text-xs text-left">
+                <div class="flex items-center justify-between">
+                  <span>${c.name}</span><span>${currentPreviewKey===c.key?'⏸':'▶'}</span>
+                </div>
+                <div class="text-[10px] text-stone-400 mt-0.5">📍${c.loc}</div>
+              </button>`).join('')}
+          </div>
+        </details>
+      `)}
+    </div>
+  `;
+}
+
+/* ============ Menu2: 魂を霊視しよう ============ */
+function renderMenu2(){
+  const s = state.soul;
+  const other = isOtherTarget();
+  return `
+    <div class="space-y-4 fade-in">
+      ${card(`
+        ${sectionTitle('鑑定対象を選択', '誰の魂を視るワークか選んでください')}
+        ${tileGroup('soul.target',[{v:'self',l:'🧘 自分自身'},{v:'other',l:'🧑‍🤝‍🧑 相談者'}])}
+        ${other ? `<div class="mt-3">${textInput('soul.targetName','相談者のお名前・呼び方（任意）例：Aさん')}</div>` : ''}
+        <p class="text-xs text-stone-400 mt-2">${other ? `${targetLabel()}のことを思い浮かべながら、以下のワークを進めてください。` : 'ご自身の魂に意識を向けながら、以下のワークを進めてください。'}</p>
+      `)}
+      ${card(`
+        ${sectionTitle('ソウルシルエット凝視', '中心を1分ほど見つめ、浮かぶ印象をそのまま受け取ります')}
+        ${purposeBox(
+          '特定の形を持たない円形のシンボルに意識を向けることで、頭の中の"おしゃべり"（雑念）を止め、魂の波動を受け取りやすい状態をつくります。',
+          '1分間、目線がそれても良いので中心に意識を戻し続けられたらクリアです。無理に何かを視ようとしなくて大丈夫です。'
+        )}
+        <div class="flex flex-col items-center">
+          <div class="w-56">${SVG_SOUL_ORB}</div>
+          <div class="text-2xl font-light text-stone-800 tabular-nums mt-3" id="gazeTimerDisplay">${fmtTime(gazeTimer.remaining)}</div>
+          <div class="flex gap-2 mt-2">
+            ${!gazeTimer.running && !gazeTimer.done ? `<button onclick="startGazeTimer()" class="px-4 py-2 rounded-full bg-stone-800 text-white text-sm hover:bg-stone-700">凝視スタート</button>` : ''}
+            ${!gazeTimer.done ? `<button onclick="skipGaze()" class="px-4 py-2 rounded-full bg-stone-100 text-stone-500 text-sm hover:bg-stone-200">質問へ進む</button>` : ''}
+          </div>
+          ${gazeTimer.done ? `<p class="text-sm text-stone-500 mt-3">凝視お疲れさまでした。浮かんだ印象のまま、下の質問にすぐ答えてください。考えすぎないことが大切です。</p>` : ''}
+        </div>
+      `)}
+
+      ${card(`
+        ${sectionTitle('魂を霊視しよう', '直感で、パッと浮かんだものをすぐに選んでください')}
+        <div class="bg-orange-50 rounded-lg p-3 text-xs text-orange-700 leading-relaxed mb-4">
+          ⚡ 考え込まず、<mark class="mk-orange">最初に浮かんだ答え</mark>をすぐに選ぶ・入力することが上達の鍵です。迷ったら、5秒以内に選び直してください。
+        </div>
+        <div class="space-y-5">
+          <div><p class="text-sm text-stone-600 mb-2">① 明暗（明るいか、暗いか）</p>
+            ${tileGroup('soul.brightness',[{v:'明るい',l:'☀️ 明るい'},{v:'暗い',l:'🌑 暗い'}])}
+          </div>
+          <div><p class="text-sm text-stone-600 mb-2">② 温度感（温かいか、熱いか、冷たいか）</p>
+            ${tileGroup('soul.temperature',[{v:'温かい',l:'🌤️ 温かい'},{v:'熱い',l:'🔥 熱い'},{v:'冷たい',l:'❄️ 冷たい'}])}
+          </div>
+          <div><p class="text-sm text-stone-600 mb-2">③ 重さ（軽いか、重いか）</p>
+            ${tileGroup('soul.weight',[{v:'軽い',l:'🪶 軽い'},{v:'重い',l:'⚓ 重い'}])}
+          </div>
+          <div><p class="text-sm text-stone-600 mb-2">④ 色は何色ですか</p>
+            ${tileGroup('soul.color', COLORS.map(c=>({v:c,l:c})))}
+          </div>
+          <div><p class="text-sm text-stone-600 mb-2">⑤ 今の魂のテーマは？（感情から選択）</p>
+            ${tileGroup('soul.theme', THEMES.map(t=>({v:t,l:t})))}
+          </div>
+          <div><p class="text-sm text-stone-600 mb-2">その他、見えたもの・感じたこと</p>
+            ${textArea('soul.other','形・匂い・音・言葉など、浮かんだままを自由に書いてください', 4)}
+          </div>
+        </div>
+        ${autoSaveNote()}
+      `)}
+
+      ${card(`
+        ${sectionTitle('鑑定文プロンプトの自動生成')}
+        <p class="text-sm text-stone-500 mb-3">ここまでの回答をもとに、ChatGPTに貼り付けるだけで鑑定文が作れるプロンプトを自動生成します。</p>
+        <button onclick="generateSoulPromptClick()" class="px-4 py-2 rounded-full bg-stone-800 text-white text-sm">鑑定文プロンプトを生成する</button>
+        ${s.generatedPrompt ? `
+        <div class="mt-4">
+          <textarea id="soulPromptArea" rows="16" class="w-full border border-stone-200 rounded-lg px-3 py-2 text-xs font-mono text-stone-600 focus:outline-none">${s.generatedPrompt}</textarea>
+          <div class="flex flex-wrap gap-2 mt-2">
+            <button onclick="copyText('soulPromptArea')" class="px-4 py-2 rounded-full bg-orange-100 text-orange-700 text-sm hover:bg-orange-200">📋 コピーする</button>
+            <a href="https://chatgpt.com/" target="_blank" rel="noopener" class="px-4 py-2 rounded-full bg-stone-800 text-white text-sm hover:bg-stone-700">ChatGPTを開く ↗</a>
+          </div>
+          <p class="text-xs text-stone-400 mt-2">①プロンプトをコピー → ②「ChatGPTを開く」→ ③チャット欄に貼り付けて送信すると、鑑定文が生成されます。</p>
+        </div>` : ''}
+      `)}
+    </div>
+  `;
+}
+
+/* ============ Menu3: フィードバック ============ */
+const FAQS = [
+  ['何も浮かばない、真っ白になってしまいます', `無理はありません。顕在脳（論理的に考える力）が強く働いている状態だと、直感の情報はかき消されやすくなります。<br><br>
+一度メニュー1のチャクラ瞑想に戻り、体の力を抜くことを優先してください。「視なければ」と力むほど、かえって何も浮かびにくくなります。<mark class="mk-sky">浮かばない、というのも一つの結果</mark>として、そのまま記録して大丈夫です。`],
+  ['毎回同じ答え（例えば「白」「軽い」）ばかり選んでしまいます', `同じ答えが続くこと自体は間違いではありません。ただ、選ぶ前に一度立ち止まり、「本当に今そう感じたか」「考えずに選んだ習慣になっていないか」を確認してみてください。<br><br>
+ソウルシルエットを見つめる時間を少し延ばしたり、深呼吸を1回はさんでから回答すると、その都度の感覚が拾いやすくなります。`],
+  ['怖くて途中でやめたくなります。続けても大丈夫ですか？', `無理に続ける必要はありません。少しでも強い恐怖や不快感があるときは、<mark class="mk-rose">いったんワークを中断してグラウンディング</mark>（水を飲む、深呼吸、足裏を意識するなど）を優先してください。<br><br>
+体調や気分が落ち着いているタイミングで、少しずつ慣らしていくくらいでちょうど良いです。`],
+  ['自分の願望や思い込みが混ざっている気がします。妄想との違いが分かりません', `とても良い気づきです。実はこの区別をつきやすくするために、本教材ではあえて第6チャクラ（直感・イメージ）を使わずに感情・愛・高次元の3チャクラだけでトレーニングしています。<br><br>
+それでも迷うときは、「〜であってほしい」という願望から浮かんだものか、「勝手に、唐突に」浮かんできたものかを振り返ってみてください。<mark class="mk-purple">後者のほうが直感由来</mark>である可能性が高いです。記録を積み重ねるほど見分けがつきやすくなります。`],
+  ['相談者を視るときと、自分自身を視るときで感覚が違います', `自然なことです。対象が変わればつながる波動も変わるため、感じ方に差が出て当然です。<br><br>
+相談者を視るときは、凝視の前に一呼吸おいて、その方のお顔や名前を軽く思い浮かべてから始めると、意識のピントが合いやすくなります。感覚の違いそのものも、大切な情報として記録しておきましょう。`],
+  ['色や形が複数同時に浮かんでしまい、一つに絞れません', `無理に一つへ絞る必要はありません。まずは<mark class="mk-orange">最初に浮かんだもの、または一番強く感じたもの</mark>を選択式の回答にし、残りは「その他、見えたもの・感じたこと」の欄にすべて書き出してください。情報が多いことは、むしろ豊かな受信ができているサインです。`],
+  ['セッションのあと、体がだるい・疲れることがあります', `感覚を開いたまま日常に戻ると、エネルギーの境界が曖昧になり疲れやすくなることがあります。<br><br>
+ワークの後は必ず<mark class="mk-green">グラウンディング</mark>（水を飲む、深呼吸、足裏を意識して立つなど）を行う習慣をつけてください。だるさが続く場合は、無理に毎日行わず間隔をあけましょう。`],
+  ['鑑定文の内容が自分（相談者）に当てはまっていない気がします。どう受け止めればいいですか？', `生成された鑑定文は、断定に見えても100％の的中を保証するものではなく、<mark class="mk-sky">気づきのきっかけ</mark>として作られています。<br><br>
+すべてを鵜呑みにせず、自分（または相談者）の心に引っかかった部分だけを受け取り、残りは「そういう見方もあるのか」くらいの距離感で扱ってください。回数を重ねるほど、記録と実感のズレも精度が上がっていきます。`],
+];
+
+function renderMenu3(){
+  const s = state.soul;
+  const f = state.feedback;
+  const other = isOtherTarget();
+  const label = targetLabel();
+  const filled = Object.entries(s).filter(([k,v])=>!['generatedPrompt','target','targetName'].includes(k) && v).length;
+  const noSessionYet = filled===0;
+  const negativeThemes = ['恐れ','絶望','不安','悲しみ','嫉妬','罪悪感','恥','孤独','怒り'];
+  const heavyNegative = !noSessionYet && s.brightness==='暗い' && (s.weight==='重い' || negativeThemes.includes(s.theme));
+
+  const anyPattern = f.shapeType || f.wordType || f.inconsistentType || noSessionYet || heavyNegative;
+
+  return `
+    <div class="space-y-4 fade-in">
+      ${card(`
+        ${sectionTitle('フィードバック', 'よくあるケース・疑問にお答えします')}
+        <p class="text-sm text-stone-500 mb-3">最初のうちは、うまく霊視できないと感じる方が多くいます。当てはまるものにチェックを入れてみてください。</p>
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 text-sm text-stone-600">
+            <input type="checkbox" ${f.shapeType?'checked':''} onchange="setField('feedback.shapeType', this.checked)"/>
+            色ではなく、形で見えてしまう
+          </label>
+          <label class="flex items-center gap-2 text-sm text-stone-600">
+            <input type="checkbox" ${f.wordType?'checked':''} onchange="setField('feedback.wordType', this.checked)"/>
+            映像ではなく、言葉としてメッセージが入ってきた
+          </label>
+          <label class="flex items-center gap-2 text-sm text-stone-600">
+            <input type="checkbox" ${f.inconsistentType?'checked':''} onchange="setField('feedback.inconsistentType', this.checked)"/>
+            毎回、見える色や形が違って一貫性がない
+          </label>
+        </div>
+      `)}
+
+      ${noSessionYet ? card(`
+        <p class="text-sm text-stone-700 leading-relaxed">
+          まだセッションが始まっていないようですね。<br><br>
+          まずは<mark class="mk-sky">メニュー2「魂を霊視しよう」</mark>で、ソウルシルエットを見ながら直感で答えてみましょう。正解を探す必要はありません。最初に浮かんだものが、あなたにとっての"正解"です。
+        </p>
+        <button onclick="goMenu('menu2')" class="mt-3 px-4 py-2 rounded-full bg-stone-800 text-white text-sm">メニュー2へ</button>
+      `, 'border border-sky-100') : ''}
+
+      ${f.shapeType ? card(`
+        <p class="text-sm text-stone-700 leading-relaxed">
+          <mark class="mk-orange">これはレアな見え方です。</mark><br><br>
+          波動を色ではなく「形質」として捉えていける方です。動物型や幾何学模様など、フォルムとして情報を受け取る感覚は、比較的珍しい回路です。<mark class="mk-green">大切にしていきましょう。</mark><br><br>
+          見え方に優劣はありません。色で視える人も形で視える人も、同じように波動を正しく受け取っています。今後は<mark>「〇〇型」</mark>という表記で記録を積み重ねていくと、あなた自身の見え方のクセがどんどん明確になっていきます。
+        </p>
+      `, 'border border-orange-100') : ''}
+
+      ${f.wordType ? card(`
+        <p class="text-sm text-stone-700 leading-relaxed">
+          映像として見えなくても、まったく問題ありません。あなたは<mark class="mk-sky">「言語優位」タイプ</mark>の受け取り方をしている可能性が高いです。<br><br>
+          このタイプの方は、瞑想の組み立てを少し変えるとぐっと感覚がつかみやすくなります。<br><br>
+          ・第6チャクラを使う瞑想ではなく、第5チャクラ（喉／表現）を軽く意識に加えてみてください。<br>
+          ・「見ようとする」のではなく、「浮かんできた言葉をそのまま声に出す・書き出す」練習に切り替えてください。<br>
+          ・瞑想中に映像を追い求めず、「最初に浮かんだ一言」を疑わずにメモする習慣をつけましょう。<br><br>
+          見え方は人それぞれです。あなたに合った回路で受け取れば大丈夫です。
+        </p>
+      `, 'border border-sky-100') : ''}
+
+      ${f.inconsistentType ? card(`
+        <p class="text-sm text-stone-700 leading-relaxed">
+          毎回、見え方が変わるのは決しておかしなことではありません。<br><br>
+          魂の波動は<mark class="mk-purple">常に一定ではなく、その日のコンディションや心の状態によって揺らぐもの</mark>だからです。今日は色で見え、明日は形で見えることもあります。<br><br>
+          一貫性がないことを不安に思うのではなく、<mark class="mk-green">「今日はどう見えたか」を毎回そのまま記録していく</mark>ことが、精度を上げる一番の近道です。時系列で積み重ねていくと、ゆるやかな傾向が見えてきます。
+        </p>
+      `, 'border border-purple-100') : ''}
+
+      ${heavyNegative ? card(`
+        <p class="text-sm text-stone-700 leading-relaxed">
+          ここまでの回答が、暗さや重さ、恐れ・不安といった<mark class="mk-rose">"重たい"</mark>印象に偏っていますね。<br><br>
+          ${other
+            ? `これは、${label}の魂の奥に、まだ整理しきれていない感情が眠っているサインかもしれません。同時に、視ているあなた自身の感情のフィルターが結果に影響している可能性もあります。どちらの要素も否定せず、そのまま記録に残しておきましょう。`
+            : `これは、あなたの魂の奥に、まだ整理しきれていない感情が眠っているサインかもしれません。`}
+          でも、少し立ち止まって考えてみてください。<br><br>
+          本当は見てもいいはずのものを、あなた自身が「見てはいけない」とブロックをかけていませんか。<br><br>
+          怖いから見ないのではなく、見て、知って、受け止めることで、その重さは初めて<mark class="mk-rose">"手放せるもの"</mark>に変わっていきます。メニュー1のチャクラ瞑想でグラウンディングしてから、もう一度向き合ってみましょう。
+        </p>
+        <button onclick="goMenu('menu1')" class="mt-3 px-4 py-2 rounded-full bg-stone-800 text-white text-sm">メニュー1へ</button>
+      `, 'border border-rose-100') : ''}
+
+      ${!anyPattern ? card(`
+        <p class="text-sm text-stone-500">現時点で特筆すべきブロックは見当たりません。順調にセッションが進んでいます。この調子で、浮かんだままを疑わずに記録していきましょう。</p>
+      `) : ''}
+
+      ${card(`
+        ${sectionTitle('よくある質問（FAQ）', 'その他、練習中によく寄せられる疑問への回答です')}
+        <div class="divide-y divide-stone-100">
+          ${FAQS.map(([q,a],i)=>`
+            <details class="py-3">
+              <summary class="flex items-center justify-between text-stone-700 font-medium text-sm gap-3">
+                <span>Q. ${q}</span>
+                <span class="text-stone-300 shrink-0">▾</span>
+              </summary>
+              <div class="mt-3 text-sm leading-relaxed text-stone-600">A. ${a}</div>
+            </details>
+          `).join('')}
+        </div>
+      `)}
+    </div>
+  `;
+}
+
+/* ============ ヘッダー & レイアウト ============ */
+const MENUS = [
+  {k:'menu1', l:'基礎解説＋チャクラ瞑想'},
+  {k:'menu2', l:'魂を霊視しよう'},
+  {k:'menu3', l:'フィードバック'},
+];
+function renderHeader(){
+  return `
+    <header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-stone-200">
+      <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div>
+          <p class="logo-font text-sm tracking-widest text-stone-400">SOUL VISION</p>
+          <p class="text-base font-medium text-stone-800 -mt-0.5">魂を視るワーク教材</p>
+        </div>
+        <div class="flex flex-col items-end gap-0.5">
+          <div class="flex items-center gap-2">
+            <button onclick="toggleMainBGM()" class="w-9 h-9 rounded-full bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-stone-600">${isMainPlaying?'⏸':'▶'}</button>
+            <input type="range" min="0" max="1" step="0.01" value="${state.volume}" oninput="setVolume(this.value)" class="w-16 accent-stone-500"/>
+          </div>
+          <p class="text-[10px] text-stone-400">🔊 端末本体の音量も上げてね</p>
+        </div>
+      </div>
+      <nav class="max-w-3xl mx-auto px-4 pb-3 flex gap-2 overflow-x-auto">
+        ${MENUS.map(m=>`
+          <button onclick="goMenu('${m.k}')" class="px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition ${state.currentMenu===m.k ? 'bg-stone-800 text-white' : 'bg-stone-100 text-stone-500 hover:bg-stone-200'}">${m.l}</button>
+        `).join('')}
+      </nav>
+    </header>
+  `;
+}
+function renderMain(){
+  switch(state.currentMenu){
+    case 'menu1': return renderMenu1();
+    case 'menu2': return renderMenu2();
+    case 'menu3': return renderMenu3();
+    default: return '';
+  }
+}
+function render(){
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    ${renderHeader()}
+    <main class="max-w-3xl mx-auto px-4 py-6 pb-20">
+      ${renderMain()}
+      <p class="text-center text-xs text-stone-300 mt-10">Relife Spiritual — 魂を視るワーク教材</p>
+    </main>
+  `;
+}
+
+load();
+render();
+</script>
+</body>
+</html>
