@@ -264,24 +264,24 @@ const SVG_SOUL_ORB = `
   <circle cx="200" cy="200" r="44" fill="none" stroke="#E7E5E4" stroke-width="1"/>
   <circle cx="200" cy="200" r="5" fill="#A8A29E"/>
 </svg>`;
-const SVG_NEURO = `
-<svg viewBox="0 0 640 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="魂視ニューロメソッドの図解">
-  <rect x="8" y="35" width="185" height="100" rx="14" fill="#FFF7ED" stroke="#FDBA74"/>
-  <text x="100" y="72" text-anchor="middle" font-size="13" fill="#C2410C" font-family="sans-serif">① 呼吸法・チャクラ瞑想</text>
-  <text x="100" y="95" text-anchor="middle" font-size="11" fill="#78716C" font-family="sans-serif">顕在脳を落ち着かせる</text>
-
-  <text x="216" y="95" text-anchor="middle" font-size="22" fill="#D6D3D1">→</text>
-
-  <rect x="228" y="35" width="185" height="100" rx="14" fill="#F3E8FF" stroke="#C084FC"/>
-  <text x="320" y="72" text-anchor="middle" font-size="13" fill="#7E22CE" font-family="sans-serif">② 魂ニューロン優位</text>
-  <text x="320" y="95" text-anchor="middle" font-size="11" fill="#78716C" font-family="sans-serif">直感の回路が開く</text>
-
-  <text x="437" y="95" text-anchor="middle" font-size="22" fill="#D6D3D1">→</text>
-
-  <rect x="448" y="35" width="185" height="100" rx="14" fill="#F0FDFA" stroke="#5EEAD4"/>
-  <text x="540" y="72" text-anchor="middle" font-size="13" fill="#0F766E" font-family="sans-serif">③ 形質・色彩・感情を受信</text>
-  <text x="540" y="95" text-anchor="middle" font-size="11" fill="#78716C" font-family="sans-serif">浮かんだままを拾う</text>
-</svg>`;
+function renderNeuroFlow(){
+  const steps = [
+    {n:'①', t:'呼吸法・チャクラ瞑想', d:'顕在脳を落ち着かせる', bg:'bg-orange-50', ring:'ring-orange-200', text:'text-orange-700'},
+    {n:'②', t:'魂ニューロン優位', d:'直感の回路が開く', bg:'bg-purple-50', ring:'ring-purple-200', text:'text-purple-700'},
+    {n:'③', t:'形質・色彩・感情を受信', d:'浮かんだままを拾う', bg:'bg-teal-50', ring:'ring-teal-200', text:'text-teal-700'},
+  ];
+  return `<div class="flex flex-col sm:flex-row items-stretch gap-2">
+    ${steps.map((s,i)=>`
+      ${i>0 ? `<div class="flex items-center justify-center text-stone-300 text-xl sm:text-2xl leading-none">
+        <span class="sm:hidden">↓</span><span class="hidden sm:inline">→</span>
+      </div>` : ''}
+      <div class="flex-1 ${s.bg} ring-1 ${s.ring} rounded-xl px-3 py-3 text-center">
+        <p class="text-sm font-semibold ${s.text}">${s.n} ${s.t}</p>
+        <p class="text-xs text-stone-500 mt-1">${s.d}</p>
+      </div>
+    `).join('')}
+  </div>`;
+}
 
 /* ============ タイマー ============ */
 function fmtTime(sec){ const m=Math.floor(sec/60), s=sec%60; return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
@@ -307,22 +307,35 @@ function startMedTimer(){
 function pauseMedTimer(){ if(medTimer.id) clearInterval(medTimer.id); medTimer.running=false; stopAllTones(); render(); }
 function resetMedTimer(){ if(medTimer.id) clearInterval(medTimer.id); medTimer = {remaining:900, running:false, id:null}; stopAllTones(); render(); }
 
+const GAZE_TOTAL = 60;
+const GAZE_RING_CIRC = 2 * Math.PI * 47;
 let gazeTimer = {remaining:60, running:false, id:null, done:false};
+function gazeRingOffset(){
+  const ratio = Math.max(gazeTimer.remaining,0) / GAZE_TOTAL;
+  return GAZE_RING_CIRC * (1 - ratio);
+}
+function updateGazeRing(){
+  const ring = document.getElementById('gazeRingCircle');
+  if(ring) ring.setAttribute('stroke-dashoffset', gazeRingOffset());
+}
 function startGazeTimer(){
   if(gazeTimer.running) return;
   gazeTimer.running = true;
+  playTones(MAIN_KEYS.map(k=>CHAKRAS.find(c=>c.key===k).freq));
+  isMainPlaying = true;
   gazeTimer.id = setInterval(()=>{
     gazeTimer.remaining--;
     const el = document.getElementById('gazeTimerDisplay');
     if(el) el.textContent = fmtTime(Math.max(gazeTimer.remaining,0));
+    updateGazeRing();
     if(gazeTimer.remaining<=0){
-      clearInterval(gazeTimer.id); gazeTimer.running=false; gazeTimer.done=true;
+      clearInterval(gazeTimer.id); gazeTimer.running=false; gazeTimer.done=true; stopAllTones();
       render();
     }
   },1000);
   render();
 }
-function skipGaze(){ if(gazeTimer.id) clearInterval(gazeTimer.id); gazeTimer.done=true; gazeTimer.running=false; render(); }
+function skipGaze(){ if(gazeTimer.id) clearInterval(gazeTimer.id); gazeTimer.done=true; gazeTimer.running=false; stopAllTones(); render(); }
 
 /* ============ 魂の種類10種：SVGアイコン ============ */
 const SOULS = [
@@ -411,7 +424,7 @@ function renderMenu1(){
           <p class="font-medium text-indigo-700 mb-1">🧠 なぜチャクラ瞑想をするのか（魂ニューロンの視点）</p>
           <p>私たちの脳には、論理的に考える「顕在脳」と、直感やイメージを受け取る<mark class="mk-purple">"魂ニューロン"</mark>と呼べる回路があります。普段は顕在脳が優位なため、魂ニューロンからの微細な情報はかき消されがちです。</p>
           <p class="mt-2">チャクラに意識を向けながら呼吸をすることで顕在脳の働きが落ち着き、<mark class="mk-purple">魂ニューロンが優位</mark>に切り替わっていきます。チャクラ瞑想は、いわば魂からの波動を受信するための"アンテナの周波数合わせ"です。</p>
-          <div class="my-3">${SVG_NEURO}</div>
+          <div class="my-3">${renderNeuroFlow()}</div>
         </div>
         <p class="text-sm text-stone-600 leading-relaxed mb-4">
           あえて第6チャクラ（直感・イメージ）は使いません。第6チャクラを先に開きすぎると、<mark>妄想（実在しないもの）</mark>と<mark>実在する情報</mark>の区別がつきにくくなるためです。
@@ -482,12 +495,21 @@ function renderMenu2(){
       ${card(`
         ${sectionTitle('ソウルシルエット凝視', '中心を1分ほど見つめ、浮かぶ印象をそのまま受け取ります')}
         ${purposeBox(
-          '特定の形を持たない円形のシンボルに意識を向けることで、頭の中の"おしゃべり"（雑念）を止め、魂の波動を受け取りやすい状態をつくります。',
+          '特定の形を持たない円形のシンボルに意識を向けることで、頭の中の"おしゃべり"（雑念）を止め、魂の波動を受け取りやすい状態をつくります。スタートすると、霊視をしやすくする周波数の音楽が同時に流れます。',
           '1分間、目線がそれても良いので中心に意識を戻し続けられたらクリアです。無理に何かを視ようとしなくて大丈夫です。'
         )}
         <div class="flex flex-col items-center">
-          <div class="w-56">${SVG_SOUL_ORB}</div>
+          <div class="relative w-56 h-56">
+            <div class="absolute inset-0">${SVG_SOUL_ORB}</div>
+            <svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="50" r="47" fill="none" stroke="#E7E5E4" stroke-width="2.5"/>
+              <circle id="gazeRingCircle" cx="50" cy="50" r="47" fill="none" stroke="#FB923C" stroke-width="2.5" stroke-linecap="round"
+                stroke-dasharray="${GAZE_RING_CIRC}" stroke-dashoffset="${gazeRingOffset()}"
+                transform="rotate(-90 50 50)" style="transition: stroke-dashoffset 1s linear;"/>
+            </svg>
+          </div>
           <div class="text-2xl font-light text-stone-800 tabular-nums mt-3" id="gazeTimerDisplay">${fmtTime(gazeTimer.remaining)}</div>
+          ${gazeTimer.running ? `<p class="text-sm font-bold text-red-600 mt-2 text-center">🔊 音が流れている間はしっかり集中してください</p>` : ''}
           <div class="flex gap-2 mt-2">
             ${!gazeTimer.running && !gazeTimer.done ? `<button onclick="startGazeTimer()" class="px-4 py-2 rounded-full bg-stone-800 text-white text-sm hover:bg-stone-700">凝視スタート</button>` : ''}
             ${!gazeTimer.done ? `<button onclick="skipGaze()" class="px-4 py-2 rounded-full bg-stone-100 text-stone-500 text-sm hover:bg-stone-200">質問へ進む</button>` : ''}
