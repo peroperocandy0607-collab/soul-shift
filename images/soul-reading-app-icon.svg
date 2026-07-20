@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Soul Reading app icon">
+  <rect width="512" height="512" fill="#fff"/>
+  <rect x="22" y="22" width="468" height="468" rx="112" fill="none" stroke="#d7d7d7" stroke-width="3"/>
+  <rect x="28" y="28" width="456" height="456" rx="106" fill="none" stroke="#eeeeee" stroke-width="2"/>
+  <circle cx="256" cy="165" r="51" fill="none" stroke="#ddd6fe" stroke-width="6"/>
+  <ellipse cx="256" cy="165" rx="82" ry="31" fill="none" stroke="#c4b5fd" stroke-width="4" transform="rotate(-18 256 165)"/>
+  <ellipse cx="256" cy="165" rx="31" ry="82" fill="none" stroke="#fde68a" stroke-width="4" transform="rotate(24 256 165)"/>
+  <path d="M256 139L264 157L282 165L264 173L256 191L248 173L230 165L248 157Z" fill="#7c3aed"/>
+  <text x="256" y="310" text-anchor="middle" fill="#36313f" font-family="Segoe UI,Arial,sans-serif" font-size="61" font-weight="300" letter-spacing="11">SOUL</text>
+  <text x="256" y="365" text-anchor="middle" fill="#6d5a7a" font-family="Segoe UI,Arial,sans-serif" font-size="27" font-weight="600" letter-spacing="7">READING</text>
+</svg>
